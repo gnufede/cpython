@@ -2162,6 +2162,7 @@ extern "C" {
     INIT_ID(timestamp_us), \
     INIT_ID(timetuple), \
     INIT_ID(timeunit), \
+    INIT_ID(tool_id), \
     INIT_ID(top), \
     INIT_ID(traceback), \
     INIT_ID(trailers), \

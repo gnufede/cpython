@@ -1126,6 +1126,7 @@ get_tools_for_instruction(PyCodeObject *code, PyInterpreterState *interp, int i,
         /* Other (non-instrumented) events are not tied to specific instructions;
          * use the code-object-level active_monitors bitmap instead. */
         tools = code->_co_monitoring->active_monitors.tools[event];
+        tools &= ~code->_co_monitoring->disabled_monitors.tools[event];
     }
     return tools;
 }
@@ -1154,21 +1155,16 @@ static const char *const event_names [] = {
 
 /* Disable an "other" (non-instrumented) event (e.g. PY_UNWIND) for a single
  * tool on this code object.  Must be called with the world stopped or the
- * code lock held. */
+ * code lock held.  The disabled mask is kept separate from the requested
+ * masks so that restart_events() can re-enable the tool. */
 static void
-remove_local_tool(PyCodeObject *code, PyInterpreterState *interp,
-                  int event, int tool)
+disable_local_tool(PyCodeObject *code, int event, int tool)
 {
     ASSERT_WORLD_STOPPED_OR_LOCKED(code);
     assert(_PY_MONITORING_IS_UNGROUPED_EVENT(event));
     assert(!PY_MONITORING_IS_INSTRUMENTED_EVENT(event));
     assert(code->_co_monitoring);
-    code->_co_monitoring->local_monitors.tools[event] &= ~(1 << tool);
-    /* Recompute active_monitors for this event as the union of global and
-     * (now updated) local monitors. */
-    code->_co_monitoring->active_monitors.tools[event] =
-        interp->monitors.tools[event] |
-        code->_co_monitoring->local_monitors.tools[event];
+    code->_co_monitoring->disabled_monitors.tools[event] |= (1 << tool);
 }
 
 static int
@@ -1223,7 +1219,7 @@ call_instrumentation_vector(
             else if (_PY_MONITORING_IS_UNGROUPED_EVENT(event)) {
                 /* Other (non-instrumented) event: disable for this code object. */
                 _PyEval_StopTheWorld(interp);
-                remove_local_tool(code, interp, event, tool);
+                disable_local_tool(code, event, tool);
                 _PyEval_StartTheWorld(interp);
             }
             else {
@@ -1700,7 +1696,9 @@ allocate_instrumentation_data(PyCodeObject *code)
         }
         monitoring->local_monitors = (_Py_LocalMonitors){ 0 };
         monitoring->active_monitors = (_Py_LocalMonitors){ 0 };
+        monitoring->disabled_monitors = (_Py_LocalMonitors){ 0 };
         memset(monitoring->tool_versions, 0, sizeof(monitoring->tool_versions));
+        memset(monitoring->tool_restart_versions, 0, sizeof(monitoring->tool_restart_versions));
         monitoring->tools = NULL;
         monitoring->lines = NULL;
         monitoring->line_tools = NULL;
@@ -1726,6 +1724,7 @@ update_instrumentation_data(PyCodeObject *code, PyInterpreterState *interp)
         if (code->_co_monitoring->tool_versions[i] != interp->monitoring_tool_versions[i]) {
             for (int j = 0; j < _PY_MONITORING_UNGROUPED_EVENTS; j++) {
                 local_monitors->tools[j] &= ~(1 << i);
+                code->_co_monitoring->disabled_monitors.tools[j] &= ~(1 << i);
             }
         }
     }
@@ -1844,17 +1843,67 @@ force_instrument_lock_held(PyCodeObject *code, PyInterpreterState *interp)
     _Py_LocalMonitors new_events;
     _Py_LocalMonitors removed_events;
 
-    bool restarted = interp->last_restart_version > code->_co_instrumentation_version;
-    if (restarted) {
-        removed_events = code->_co_monitoring->active_monitors;
+    /* A scoped restart re-arms only the tools whose restart epoch has
+     * advanced past the epoch last applied to this code object.  The
+     * no-argument restart advances every tool's epoch. */
+    uint8_t restart_tools = 0;
+    for (int t = 0; t < PY_MONITORING_TOOL_IDS; t++) {
+        if (interp->monitoring_tool_restart_versions[t] >
+            code->_co_monitoring->tool_restart_versions[t]) {
+            restart_tools |= (1 << t);
+        }
+    }
+
+    _Py_LocalMonitors old_active = code->_co_monitoring->active_monitors;
+    const uint8_t all_tools = (uint8_t)((1u << PY_MONITORING_TOOL_IDS) - 1);
+
+    if (restart_tools == all_tools) {
+        /* Every tool restarted: re-arm the whole requested set, as the
+         * process-wide restart did before scoped restarts existed.  This
+         * keeps the no-argument restart on the cheap path. */
+        removed_events = old_active;
         new_events = active_events;
     }
     else {
-        removed_events = monitors_sub(code->_co_monitoring->active_monitors, active_events);
-        new_events = monitors_sub(active_events, code->_co_monitoring->active_monitors);
-        assert(monitors_are_empty(monitors_and(new_events, removed_events)));
+        removed_events = monitors_sub(old_active, active_events);
+        new_events = monitors_sub(active_events, old_active);
+        if (restart_tools) {
+            for (int e = 0; e < _PY_MONITORING_UNGROUPED_EVENTS; e++) {
+                removed_events.tools[e] |= old_active.tools[e] & restart_tools;
+                new_events.tools[e] |= active_events.tools[e] & restart_tools;
+            }
+        }
+        else {
+            assert(monitors_are_empty(monitors_and(new_events, removed_events)));
+        }
     }
     code->_co_monitoring->active_monitors = active_events;
+    if (restart_tools == all_tools) {
+        /* Clear the disabled overlay in one store instead of once per tool. */
+        code->_co_monitoring->disabled_monitors = (_Py_LocalMonitors){ 0 };
+        for (int t = 0; t < PY_MONITORING_TOOL_IDS; t++) {
+            code->_co_monitoring->tool_restart_versions[t] =
+                interp->monitoring_tool_restart_versions[t];
+        }
+    }
+    else if (restart_tools) {
+        bool have_disabled =
+            !monitors_are_empty(code->_co_monitoring->disabled_monitors);
+        for (int t = 0; t < PY_MONITORING_TOOL_IDS; t++) {
+            if (restart_tools & (1 << t)) {
+                code->_co_monitoring->tool_restart_versions[t] =
+                    interp->monitoring_tool_restart_versions[t];
+                if (have_disabled) {
+                    /* Code-level events keep their requested mask; only the
+                     * separate disabled mask is cleared. */
+                    for (int e = 0; e < _PY_MONITORING_UNGROUPED_EVENTS; e++) {
+                        code->_co_monitoring->disabled_monitors.tools[e] &=
+                            ~(1 << t);
+                    }
+                }
+            }
+        }
+    }
     if (monitors_are_empty(new_events) && monitors_are_empty(removed_events)) {
         goto done;
     }
@@ -2477,12 +2526,17 @@ monitoring_set_local_events_impl(PyObject *module, int tool_id,
 /*[clinic input]
 monitoring.restart_events
 
+    tool_id: int = -1
+
 [clinic start generated code]*/
 
 static PyObject *
-monitoring_restart_events_impl(PyObject *module)
-/*[clinic end generated code: output=e025dd5ba33314c4 input=add8a855063c8008]*/
+monitoring_restart_events_impl(PyObject *module, int tool_id)
+/*[clinic end generated code: output=81b23d95ff57b93b input=447a353b1a49e4d8]*/
 {
+    if (tool_id != -1 && check_valid_tool(tool_id)) {
+        return NULL;
+    }
     /* We want to ensure that:
      * last restart version > instrumented version for all code objects
      * last restart version < current version
@@ -2498,7 +2552,14 @@ monitoring_restart_events_impl(PyObject *module)
         PyErr_Format(PyExc_OverflowError, "events set too many times");
         return NULL;
     }
-    interp->last_restart_version = restart_version;
+    if (tool_id == -1) {
+        for (int t = 0; t < PY_MONITORING_TOOL_IDS; t++) {
+            interp->monitoring_tool_restart_versions[t] = restart_version;
+        }
+    }
+    else {
+        interp->monitoring_tool_restart_versions[tool_id] = restart_version;
+    }
     set_global_version(tstate, new_version);
 #ifdef _Py_TIER2
     _Py_Executors_InvalidateAll(interp, 1);

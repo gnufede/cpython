@@ -663,6 +663,7 @@ init_interpreter(PyInterpreterState *interp,
 
         }
         interp->monitoring_tool_versions[t] = 0;
+        interp->monitoring_tool_restart_versions[t] = 0;
     }
     interp->_code_object_generation = 0;
     interp->jit = false;

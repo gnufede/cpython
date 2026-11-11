@@ -856,7 +856,6 @@ struct _is {
     int _ready;
     int finalizing;
 
-    uintptr_t last_restart_version;
     struct pythreads {
         uint64_t next_unique_id;
         /* The linked list of threads, newest first. */
@@ -1027,6 +1026,7 @@ struct _is {
     PyObject *monitoring_callables[PY_MONITORING_TOOL_IDS][_PY_MONITORING_EVENTS];
     PyObject *monitoring_tool_names[PY_MONITORING_TOOL_IDS];
     uintptr_t monitoring_tool_versions[PY_MONITORING_TOOL_IDS];
+    uintptr_t monitoring_tool_restart_versions[PY_MONITORING_TOOL_IDS];
 
     struct _Py_interp_cached_objects cached_objects;
     struct _Py_interp_static_objects static_objects;

@@ -807,6 +807,16 @@ symtable
   (Contributed by Irit Katriel in :gh:`124697`.)
 
 
+sys
+---
+
+* :func:`sys.monitoring.restart_events` now accepts an optional *tool_id*
+  argument.  A tool can use it to re-enable only the locations it disabled
+  with :data:`sys.monitoring.DISABLE`, without affecting the disabled
+  locations of other tools.
+  (Contributed by gnufede in :gh:`158000`.)
+
+
 tkinter
 -------
 

@@ -427,6 +427,36 @@ class MontoringDisableAndRestartTest(MonitoringTestBase, unittest.TestCase):
         finally:
             sys.monitoring.restart_events()
 
+    def test_restart_rejects_invalid_tool(self):
+        with self.assertRaises(ValueError):
+            sys.monitoring.restart_events(6)
+
+    def test_restart_code_level(self):
+        def raise_and_catch():
+            try:
+                raise ValueError
+            except ValueError:
+                pass
+
+        try:
+            counter = CounterWithDisable()
+            sys.monitoring.register_callback(TEST_TOOL, E.RAISE, counter)
+            sys.monitoring.set_local_events(
+                TEST_TOOL, raise_and_catch.__code__, E.RAISE)
+            counter.disable = True
+            raise_and_catch()
+            counter.count = 0
+            raise_and_catch()
+            self.assertEqual(counter.count, 0)
+            sys.monitoring.restart_events(TEST_TOOL)
+            counter.count = 0
+            raise_and_catch()
+            self.assertEqual(counter.count, 1)
+        finally:
+            sys.monitoring.set_events(TEST_TOOL, 0)
+            sys.monitoring.register_callback(TEST_TOOL, E.RAISE, None)
+            sys.monitoring.restart_events()
+
 
 class MultipleMonitorsTest(MonitoringTestBase, unittest.TestCase):
 
@@ -544,6 +574,86 @@ class MultipleMonitorsTest(MonitoringTestBase, unittest.TestCase):
             sys.monitoring.register_callback(TEST_TOOL, E.PY_START, None)
             sys.monitoring.register_callback(TEST_TOOL2, E.PY_START, None)
             self.assertEqual(sys.monitoring._all_events(), {})
+            sys.monitoring.restart_events()
+
+    def test_scoped_restart(self):
+        try:
+            self.assertEqual(sys.monitoring._all_events(), {})
+            counter1 = CounterWithDisable()
+            counter2 = CounterWithDisable()
+            sys.monitoring.register_callback(TEST_TOOL, E.PY_START, counter1)
+            sys.monitoring.register_callback(TEST_TOOL2, E.PY_START, counter2)
+            sys.monitoring.set_events(TEST_TOOL, E.PY_START)
+            sys.monitoring.set_events(TEST_TOOL2, E.PY_START)
+            counter1.disable = True
+            counter2.disable = True
+            f1()
+            counter1.count = 0
+            counter2.count = 0
+            f1()
+            self.assertEqual((counter1.count, counter2.count), (0, 0))
+
+            sys.monitoring.restart_events(TEST_TOOL)
+            counter1.count = 0
+            counter2.count = 0
+            f1()
+            self.assertEqual((counter1.count, counter2.count), (1, 0))
+
+            sys.monitoring.restart_events(tool_id=TEST_TOOL2)
+            counter1.count = 0
+            counter2.count = 0
+            f1()
+            self.assertEqual((counter1.count, counter2.count), (0, 1))
+
+            sys.monitoring.restart_events()
+            counter1.count = 0
+            counter2.count = 0
+            f1()
+            self.assertEqual((counter1.count, counter2.count), (1, 1))
+        finally:
+            sys.monitoring.set_events(TEST_TOOL, 0)
+            sys.monitoring.set_events(TEST_TOOL2, 0)
+            sys.monitoring.register_callback(TEST_TOOL, E.PY_START, None)
+            sys.monitoring.register_callback(TEST_TOOL2, E.PY_START, None)
+            self.assertEqual(sys.monitoring._all_events(), {})
+            sys.monitoring.restart_events()
+
+    def test_scoped_restart_code_level(self):
+        def raise_and_catch():
+            try:
+                raise ValueError
+            except ValueError:
+                pass
+
+        try:
+            counter1 = CounterWithDisable()
+            counter2 = CounterWithDisable()
+            sys.monitoring.register_callback(TEST_TOOL, E.RAISE, counter1)
+            sys.monitoring.register_callback(TEST_TOOL2, E.RAISE, counter2)
+            sys.monitoring.set_local_events(
+                TEST_TOOL, raise_and_catch.__code__, E.RAISE)
+            sys.monitoring.set_local_events(
+                TEST_TOOL2, raise_and_catch.__code__, E.RAISE)
+            counter1.disable = True
+            counter2.disable = True
+            raise_and_catch()
+            counter1.count = 0
+            counter2.count = 0
+            raise_and_catch()
+            self.assertEqual((counter1.count, counter2.count), (0, 0))
+
+            sys.monitoring.restart_events(TEST_TOOL)
+            counter1.count = 0
+            counter2.count = 0
+            raise_and_catch()
+            self.assertEqual((counter1.count, counter2.count), (1, 0))
+        finally:
+            sys.monitoring.set_local_events(
+                TEST_TOOL, raise_and_catch.__code__, 0)
+            sys.monitoring.set_local_events(
+                TEST_TOOL2, raise_and_catch.__code__, 0)
+            sys.monitoring.register_callback(TEST_TOOL, E.RAISE, None)
+            sys.monitoring.register_callback(TEST_TOOL2, E.RAISE, None)
             sys.monitoring.restart_events()
 
     def test_with_instruction_event(self):
