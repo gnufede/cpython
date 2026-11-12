@@ -1725,6 +1725,9 @@ update_instrumentation_data(PyCodeObject *code, PyInterpreterState *interp)
                 local_monitors->tools[j] &= ~(1 << i);
                 code->_co_monitoring->disabled_monitors.tools[j] &= ~(1 << i);
             }
+            /* The code object is now in sync with this tool version, so do
+             * not repeat the invalidation on every later instrumentation. */
+            code->_co_monitoring->tool_versions[i] = interp->monitoring_tool_versions[i];
         }
     }
 
