@@ -107,8 +107,6 @@ typedef struct _PyCoMonitoringData {
     uint8_t *tools;
     /* The version of tools when they instrument the code */
     uintptr_t tool_versions[PY_MONITORING_TOOL_IDS];
-    /* The last restart epoch applied for each tool */
-    uintptr_t tool_restart_versions[PY_MONITORING_TOOL_IDS];
     /* Tools disabled for code-level events on this code object */
     _Py_LocalMonitors disabled_monitors;
     /* Information to support line events */

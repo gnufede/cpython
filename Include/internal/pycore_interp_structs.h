@@ -1026,7 +1026,11 @@ struct _is {
     PyObject *monitoring_callables[PY_MONITORING_TOOL_IDS][_PY_MONITORING_EVENTS];
     PyObject *monitoring_tool_names[PY_MONITORING_TOOL_IDS];
     uintptr_t monitoring_tool_versions[PY_MONITORING_TOOL_IDS];
-    uintptr_t monitoring_tool_restart_versions[PY_MONITORING_TOOL_IDS];
+    /* Last full/scoped restart versions, compared against a code object's
+     * _co_instrumentation_version to decide what to re-arm. */
+    uintptr_t monitoring_last_full_restart_version;
+    uintptr_t monitoring_last_scoped_restart_version;
+    uintptr_t monitoring_scoped_restart_versions[PY_MONITORING_TOOL_IDS];
 
     struct _Py_interp_cached_objects cached_objects;
     struct _Py_interp_static_objects static_objects;
