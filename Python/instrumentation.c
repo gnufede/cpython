@@ -1727,6 +1727,9 @@ update_instrumentation_data(PyCodeObject *code, PyInterpreterState *interp)
             for (int j = 0; j < _PY_MONITORING_UNGROUPED_EVENTS; j++) {
                 local_monitors->tools[j] &= ~(1 << i);
             }
+            /* The code object is now in sync with this tool version, so do
+             * not repeat the invalidation on every later instrumentation. */
+            code->_co_monitoring->tool_versions[i] = interp->monitoring_tool_versions[i];
         }
     }
 
