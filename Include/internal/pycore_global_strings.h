@@ -887,6 +887,7 @@ struct _Py_global_strings {
         STRUCT_FOR_ID(timestamp_us)
         STRUCT_FOR_ID(timetuple)
         STRUCT_FOR_ID(timeunit)
+        STRUCT_FOR_ID(tool_id)
         STRUCT_FOR_ID(top)
         STRUCT_FOR_ID(traceback)
         STRUCT_FOR_ID(trailers)

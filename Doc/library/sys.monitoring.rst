@@ -337,10 +337,17 @@ Disabling events for specific locations is very important for high performance
 monitoring. For example, a program can be run under a debugger with no overhead
 if the debugger disables all monitoring except for a few breakpoints.
 
-.. function:: restart_events() -> None
+.. function:: restart_events(tool_id=-1) -> None
 
-   Enable all the events that were disabled by :data:`sys.monitoring.DISABLE`
-   for all tools.
+   Enable all the events that were disabled by :data:`sys.monitoring.DISABLE`.
+
+   If *tool_id* is given, only the events disabled by that tool are enabled
+   again.  The default, ``-1``, enables the disabled events of all tools.
+   Passing a tool id does not affect any other tool's disabled events.
+
+   .. versionchanged:: 3.16
+      Added the *tool_id* argument.  Before 3.16, this function always
+      re-enabled the events of every tool.
 
 
 .. _callbacks:

@@ -1,0 +1,4 @@
+Add a *tool_id* argument to :func:`sys.monitoring.restart_events` so that a
+tool can re-enable only the locations it disabled with
+:data:`sys.monitoring.DISABLE`, without affecting the disabled locations of
+other tools.

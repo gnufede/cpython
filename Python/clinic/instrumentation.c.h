@@ -2,6 +2,10 @@
 preserve
 [clinic start generated code]*/
 
+#if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+#  include "pycore_gc.h"          // PyGC_Head
+#  include "pycore_runtime.h"     // _Py_ID()
+#endif
 #include "pycore_modsupport.h"    // _PyArg_CheckPositional()
 
 PyDoc_STRVAR(monitoring_use_tool_id__doc__,
@@ -299,20 +303,68 @@ exit:
 }
 
 PyDoc_STRVAR(monitoring_restart_events__doc__,
-"restart_events($module, /)\n"
+"restart_events($module, /, tool_id=-1)\n"
 "--\n"
 "\n");
 
 #define MONITORING_RESTART_EVENTS_METHODDEF    \
-    {"restart_events", (PyCFunction)monitoring_restart_events, METH_NOARGS, monitoring_restart_events__doc__},
+    {"restart_events", _PyCFunction_CAST(monitoring_restart_events), METH_FASTCALL|METH_KEYWORDS, monitoring_restart_events__doc__},
 
 static PyObject *
-monitoring_restart_events_impl(PyObject *module);
+monitoring_restart_events_impl(PyObject *module, int tool_id);
 
 static PyObject *
-monitoring_restart_events(PyObject *module, PyObject *Py_UNUSED(ignored))
+monitoring_restart_events(PyObject *module, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames)
 {
-    return monitoring_restart_events_impl(module);
+    PyObject *return_value = NULL;
+    #if defined(Py_BUILD_CORE) && !defined(Py_BUILD_CORE_MODULE)
+
+    #define NUM_KEYWORDS 1
+    static struct {
+        PyGC_Head _this_is_not_used;
+        PyObject_VAR_HEAD
+        Py_hash_t ob_hash;
+        PyObject *ob_item[NUM_KEYWORDS];
+    } _kwtuple = {
+        .ob_base = PyVarObject_HEAD_INIT(&PyTuple_Type, NUM_KEYWORDS)
+        .ob_hash = -1,
+        .ob_item = { &_Py_ID(tool_id), },
+    };
+    #undef NUM_KEYWORDS
+    #define KWTUPLE (&_kwtuple.ob_base.ob_base)
+
+    #else  // !Py_BUILD_CORE
+    #  define KWTUPLE NULL
+    #endif  // !Py_BUILD_CORE
+
+    static const char * const _keywords[] = {"tool_id", NULL};
+    static _PyArg_Parser _parser = {
+        .keywords = _keywords,
+        .fname = "restart_events",
+        .kwtuple = KWTUPLE,
+    };
+    #undef KWTUPLE
+    PyObject *argsbuf[1];
+    Py_ssize_t noptargs = nargs + (kwnames ? PyTuple_GET_SIZE(kwnames) : 0) - 0;
+    int tool_id = -1;
+
+    args = _PyArg_UnpackKeywords(args, nargs, NULL, kwnames, &_parser,
+            /*minpos*/ 0, /*maxpos*/ 1, /*minkw*/ 0, /*varpos*/ 0, argsbuf);
+    if (!args) {
+        goto exit;
+    }
+    if (!noptargs) {
+        goto skip_optional_pos;
+    }
+    tool_id = PyLong_AsInt(args[0]);
+    if (tool_id == -1 && PyErr_Occurred()) {
+        goto exit;
+    }
+skip_optional_pos:
+    return_value = monitoring_restart_events_impl(module, tool_id);
+
+exit:
+    return return_value;
 }
 
 PyDoc_STRVAR(monitoring__all_events__doc__,
@@ -331,4 +383,4 @@ monitoring__all_events(PyObject *module, PyObject *Py_UNUSED(ignored))
 {
     return monitoring__all_events_impl(module);
 }
-/*[clinic end generated code: output=8f81876c6aba9be8 input=a9049054013a1b77]*/
+/*[clinic end generated code: output=fd2613cee8962b17 input=a9049054013a1b77]*/

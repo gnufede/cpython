@@ -875,6 +875,7 @@ _PyStaticObjects_CheckAll(PyInterpreterState *interp) {
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(timestamp_us), "timestamp_us", 12);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(timetuple), "timetuple", 9);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(timeunit), "timeunit", 8);
+    _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(tool_id), "tool_id", 7);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(top), "top", 3);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(traceback), "traceback", 9);
     _PyStaticObject_CheckUnicodeSingleton((PyObject *)&_Py_ID(trailers), "trailers", 8);

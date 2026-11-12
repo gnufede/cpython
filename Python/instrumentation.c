@@ -1847,15 +1847,43 @@ force_instrument_lock_held(PyCodeObject *code, PyInterpreterState *interp)
     _Py_LocalMonitors new_events;
     _Py_LocalMonitors removed_events;
 
-    bool restarted = interp->last_restart_version > code->_co_instrumentation_version;
-    if (restarted) {
-        removed_events = code->_co_monitoring->active_monitors;
+    /* A restart re-arms only the tools that restarted after this code
+     * object was last instrumented.  `_co_instrumentation_version` is the
+     * single sync point; a full restart covers every tool. */
+    uintptr_t sync_version = code->_co_instrumentation_version;
+    const uint8_t all_tools = (uint8_t)((1u << PY_MONITORING_TOOL_IDS) - 1);
+    uint8_t restart_tools = 0;
+    if (interp->monitoring_last_full_restart_version > sync_version) {
+        restart_tools = all_tools;
+    }
+    else if (interp->monitoring_last_scoped_restart_version > sync_version) {
+        for (int t = 0; t < PY_MONITORING_TOOL_IDS; t++) {
+            if (interp->monitoring_scoped_restart_versions[t] > sync_version) {
+                restart_tools |= (1 << t);
+            }
+        }
+    }
+
+    _Py_LocalMonitors old_active = code->_co_monitoring->active_monitors;
+    if (restart_tools == all_tools) {
+        /* Every tool restarted: re-arm the whole requested set, as the
+         * process-wide restart did before scoped restarts existed.  This
+         * keeps the no-argument restart on the cheap path. */
+        removed_events = old_active;
         new_events = active_events;
     }
     else {
-        removed_events = monitors_sub(code->_co_monitoring->active_monitors, active_events);
-        new_events = monitors_sub(active_events, code->_co_monitoring->active_monitors);
-        assert(monitors_are_empty(monitors_and(new_events, removed_events)));
+        removed_events = monitors_sub(old_active, active_events);
+        new_events = monitors_sub(active_events, old_active);
+        if (restart_tools) {
+            for (int e = 0; e < _PY_MONITORING_UNGROUPED_EVENTS; e++) {
+                removed_events.tools[e] |= old_active.tools[e] & restart_tools;
+                new_events.tools[e] |= active_events.tools[e] & restart_tools;
+            }
+        }
+        else {
+            assert(monitors_are_empty(monitors_and(new_events, removed_events)));
+        }
     }
     code->_co_monitoring->active_monitors = active_events;
     if (monitors_are_empty(new_events) && monitors_are_empty(removed_events)) {
@@ -2480,12 +2508,17 @@ monitoring_set_local_events_impl(PyObject *module, int tool_id,
 /*[clinic input]
 monitoring.restart_events
 
+    tool_id: int = -1
+
 [clinic start generated code]*/
 
 static PyObject *
-monitoring_restart_events_impl(PyObject *module)
-/*[clinic end generated code: output=e025dd5ba33314c4 input=add8a855063c8008]*/
+monitoring_restart_events_impl(PyObject *module, int tool_id)
+/*[clinic end generated code: output=81b23d95ff57b93b input=447a353b1a49e4d8]*/
 {
+    if (tool_id != -1 && check_valid_tool(tool_id)) {
+        return NULL;
+    }
     /* We want to ensure that:
      * last restart version > instrumented version for all code objects
      * last restart version < current version
@@ -2501,7 +2534,14 @@ monitoring_restart_events_impl(PyObject *module)
         PyErr_Format(PyExc_OverflowError, "events set too many times");
         return NULL;
     }
-    interp->last_restart_version = restart_version;
+    if (tool_id == -1) {
+        /* A full restart covers every tool, so a single version is enough. */
+        interp->monitoring_last_full_restart_version = restart_version;
+    }
+    else {
+        interp->monitoring_scoped_restart_versions[tool_id] = restart_version;
+        interp->monitoring_last_scoped_restart_version = restart_version;
+    }
     set_global_version(tstate, new_version);
 #ifdef _Py_TIER2
     _Py_Executors_InvalidateAll(interp, 1);
