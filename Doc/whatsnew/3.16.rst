@@ -816,6 +816,16 @@ sys
   locations of other tools.
   (Contributed by gnufede in :gh:`158000`.)
 
+* Events enabled with :func:`sys.monitoring.set_local_events` for an
+  :ref:`"other" event <monitoring-event-global>` such as
+  :data:`sys.monitoring.events.RAISE` can now be enabled again after a
+  callback returned :data:`sys.monitoring.DISABLE`.  Calling
+  :func:`sys.monitoring.restart_events` or setting the local events for the
+  code object again re-arms the tool.  Previously, returning
+  :data:`sys.monitoring.DISABLE` disabled such an event for that code object
+  permanently.
+  (Contributed by gnufede in :gh:`158000`.)
+
 
 tkinter
 -------

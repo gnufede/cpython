@@ -331,7 +331,14 @@ same event.
 :ref:`Other events <monitoring-event-global>` can be disabled on a per code
 object basis by returning :data:`sys.monitoring.DISABLE` from a callback
 function. This disables the event for the entire code object (for the current
-tool).
+tool).  Such an event is enabled again by :func:`restart_events`, or by
+setting the local events for the code object again.
+
+.. versionchanged:: 3.16
+   Events disabled on a per code object basis by returning
+   :data:`sys.monitoring.DISABLE` can now be enabled again with
+   :func:`restart_events` or :func:`set_local_events`.  Before 3.16, they
+   remained disabled for that code object.
 
 Disabling events for specific locations is very important for high performance
 monitoring. For example, a program can be run under a debugger with no overhead

@@ -1154,21 +1154,24 @@ static const char *const event_names [] = {
 
 /* Disable an "other" (non-instrumented) event (e.g. PY_UNWIND) for a single
  * tool on this code object.  Must be called with the world stopped or the
- * code lock held. */
+ * code lock held.  The disabled mask records which local events were removed
+ * so that restart_events() can re-enable the tool. */
 static void
-remove_local_tool(PyCodeObject *code, PyInterpreterState *interp,
-                  int event, int tool)
+disable_local_tool(PyCodeObject *code, PyInterpreterState *interp,
+                   int event, int tool)
 {
     ASSERT_WORLD_STOPPED_OR_LOCKED(code);
     assert(_PY_MONITORING_IS_UNGROUPED_EVENT(event));
     assert(!PY_MONITORING_IS_INSTRUMENTED_EVENT(event));
     assert(code->_co_monitoring);
-    code->_co_monitoring->local_monitors.tools[event] &= ~(1 << tool);
-    /* Recompute active_monitors for this event as the union of global and
-     * (now updated) local monitors. */
-    code->_co_monitoring->active_monitors.tools[event] =
-        interp->monitors.tools[event] |
-        code->_co_monitoring->local_monitors.tools[event];
+    _Py_LocalMonitors *local = &code->_co_monitoring->local_monitors;
+    uint8_t mask = (uint8_t)(1 << tool);
+    if (local->tools[event] & mask) {
+        local->tools[event] &= ~mask;
+        code->_co_monitoring->disabled_monitors.tools[event] |= mask;
+        code->_co_monitoring->active_monitors.tools[event] =
+            interp->monitors.tools[event] | local->tools[event];
+    }
 }
 
 static int
@@ -1223,7 +1226,7 @@ call_instrumentation_vector(
             else if (_PY_MONITORING_IS_UNGROUPED_EVENT(event)) {
                 /* Other (non-instrumented) event: disable for this code object. */
                 _PyEval_StopTheWorld(interp);
-                remove_local_tool(code, interp, event, tool);
+                disable_local_tool(code, interp, event, tool);
                 _PyEval_StartTheWorld(interp);
             }
             else {
@@ -1700,6 +1703,7 @@ allocate_instrumentation_data(PyCodeObject *code)
         }
         monitoring->local_monitors = (_Py_LocalMonitors){ 0 };
         monitoring->active_monitors = (_Py_LocalMonitors){ 0 };
+        monitoring->disabled_monitors = (_Py_LocalMonitors){ 0 };
         memset(monitoring->tool_versions, 0, sizeof(monitoring->tool_versions));
         monitoring->tools = NULL;
         monitoring->lines = NULL;
@@ -1726,6 +1730,7 @@ update_instrumentation_data(PyCodeObject *code, PyInterpreterState *interp)
         if (code->_co_monitoring->tool_versions[i] != interp->monitoring_tool_versions[i]) {
             for (int j = 0; j < _PY_MONITORING_UNGROUPED_EVENTS; j++) {
                 local_monitors->tools[j] &= ~(1 << i);
+                code->_co_monitoring->disabled_monitors.tools[j] &= ~(1 << i);
             }
             /* The code object is now in sync with this tool version, so do
              * not repeat the invalidation on every later instrumentation. */
@@ -1841,9 +1846,6 @@ force_instrument_lock_held(PyCodeObject *code, PyInterpreterState *interp)
     if (update_instrumentation_data(code, interp)) {
         return -1;
     }
-    _Py_LocalMonitors active_events = local_union(
-        interp->monitors,
-        code->_co_monitoring->local_monitors);
     _Py_LocalMonitors new_events;
     _Py_LocalMonitors removed_events;
 
@@ -1863,7 +1865,24 @@ force_instrument_lock_held(PyCodeObject *code, PyInterpreterState *interp)
             }
         }
     }
+    if (restart_tools &&
+        !monitors_are_empty(code->_co_monitoring->disabled_monitors)) {
+        /* Re-arm the code-level events that these tools disabled with
+         * DISABLE.  Disabling cleared the local bit, so restore it before
+         * computing the active event set. */
+        for (int e = 0; e < _PY_MONITORING_UNGROUPED_EVENTS; e++) {
+            uint8_t reenable =
+                code->_co_monitoring->disabled_monitors.tools[e] & restart_tools;
+            if (reenable) {
+                code->_co_monitoring->local_monitors.tools[e] |= reenable;
+                code->_co_monitoring->disabled_monitors.tools[e] &= ~restart_tools;
+            }
+        }
+    }
 
+    _Py_LocalMonitors active_events = local_union(
+        interp->monitors,
+        code->_co_monitoring->local_monitors);
     _Py_LocalMonitors old_active = code->_co_monitoring->active_monitors;
     if (restart_tools == all_tools) {
         /* Every tool restarted: re-arm the whole requested set, as the
@@ -2127,8 +2146,18 @@ _PyMonitoring_SetLocalEvents(PyCodeObject *code, int tool_id, _PyMonitoringEvent
     code->_co_monitoring->tool_versions[tool_id] = interp->monitoring_tool_versions[tool_id];
 
     _Py_LocalMonitors *local = &code->_co_monitoring->local_monitors;
+    /* Setting the local events replaces this tool's previous set, so drop
+     * any recorded DISABLE state for it as well. */
+    uint8_t mask = (uint8_t)(1 << tool_id);
+    bool had_disabled = false;
+    for (int e = 0; e < _PY_MONITORING_UNGROUPED_EVENTS; e++) {
+        if (code->_co_monitoring->disabled_monitors.tools[e] & mask) {
+            code->_co_monitoring->disabled_monitors.tools[e] &= ~mask;
+            had_disabled = true;
+        }
+    }
     uint32_t existing_events = get_local_events(local, tool_id);
-    if (existing_events == events) {
+    if (existing_events == events && !had_disabled) {
         return 0;
     }
     set_local_events(local, tool_id, events);

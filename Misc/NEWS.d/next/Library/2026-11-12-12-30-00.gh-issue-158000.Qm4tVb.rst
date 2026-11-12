@@ -1,0 +1,6 @@
+Make :data:`sys.monitoring.DISABLE` reversible for code-level "other" events.
+When a callback for an event such as :data:`sys.monitoring.events.RAISE`
+returns :data:`sys.monitoring.DISABLE` for a code object, calling
+:func:`sys.monitoring.restart_events` or setting the local events for the
+code object again re-enables the tool.  Previously the event stayed disabled
+for that code object.
